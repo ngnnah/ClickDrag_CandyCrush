@@ -1,0 +1,385 @@
+<!--
+CandyCrush
+Your Name: Nhat Nguyen
+Collaborators: I worked on this assignment all by myself.
+I read, asked, and answered questions on Piazza.
+
+-->
+
+<!DOCTYPE html>
+<html>
+<!--
+/* Copyright (c) 2017 MIT 6.813/6.831 course staff, all rights reserved.
+ * Redistribution of original or derived work requires permission of course staff.
+ */
+-->
+
+<head>
+<meta charset="utf-8">
+<title>CandyCrush</title>
+
+<!-- Load style sheets -->
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.6/css/bootstrap.css">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"> <!-- need this for arrow Glyphicon to display correctly -->
+
+<link rel="stylesheet" href="mainLayout.css">
+
+<!-- Use mobile-aware viewport -->
+<meta name="viewport" content=
+  "width=device-width, initial-scale=1, shrink-to-fit=no"">
+
+<!-- Load any supplemental Javascript libraries here -->
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/seedrandom/2.4.2/seedrandom.js"></script>
+<script src="candy.js"></script>
+<script src="board.js"></script>
+<script src="rules.js"></script>
+<script src='easing.js'></script>
+<script> //REAL CODE BEGIN
+// By default, the first board loaded by your page will be the same 
+// each time you load (which is accomplished by "seeding" the random
+// number generator. This makes testing (and grading!) easier!
+Math.seedrandom(0);
+
+
+// A short jQuery extension to read query parameters from the URL.
+$.extend({
+  getUrlVars: function() {
+    var vars = [], pair;
+    var pairs = window.location.search.substr(1).split('&');
+    for (var i = 0; i < pairs.length; i++) {
+      pair = pairs[i].split('=');
+      vars.push(pair[0]);
+      vars[pair[0]] = pair[1] &&
+          decodeURIComponent(pair[1].replace(/\+/g, ' '));
+    }
+    return vars;
+  },
+  getUrlVar: function(name) {
+    return $.getUrlVars()[name];
+  }
+});
+
+
+//GLOBAL VARIABLES
+var lastCrushColor;
+var context; //to draw hint arrow
+var animation_duration = 500;
+var DEFAULT_BOARD_SIZE = 8;
+var board;
+var rules;
+
+// initialize board
+ var url_var_size = parseInt($.getUrlVar('size'));
+ if (url_var_size >= 3 && url_var_size <= 20) {
+ board = new Board(url_var_size);
+ } else {
+ board = new Board(DEFAULT_BOARD_SIZE);
+ }
+
+var DEFAULT_BOARD_PIXEL = 320;
+// candy image size
+var CELL_WIDTH = DEFAULT_BOARD_PIXEL/board.boardSize;
+
+// load a rule
+rules = new Rules(board);
+
+// Final initialization entry point: the Javascript code inside this block
+// runs at the end of start-up when the page has finished loading.
+$(document).ready(function()
+{ 
+  rules.prepareNewGame();
+  // create divs for cells, assign ID
+  for (var h = 0; h < board.boardSize; h++) {
+    for (var w=0; w < board.boardSize; w++) {
+      var cell = document.createElement("div");
+      $('#boardView').append(cell);
+      cell.id = "cell" + h.toString() + '-' + w.toString();
+      cell.className = "cell";
+      cell.style.top = (CELL_WIDTH*h).toString() +"px";
+      cell.style.left = (CELL_WIDTH*w).toString() + "px";;
+      cell.style.width = CELL_WIDTH.toString() + "px";
+      cell.style.height = CELL_WIDTH.toString() + "px";
+    }
+  }
+  document.getElementById("score").innerHTML =  board.getScore().toString() + " point";
+  updateViewBoard();
+
+
+
+  var dragging = false;
+  var boardTop = $("#boardView").offset().top;
+  var boardLeft = $("#boardView").offset().left;
+
+  function inBound(x,y) {
+    return ((x - boardLeft > 0) && (x - boardLeft < 320) &&
+      (y - boardTop > 0) && (y - boardTop < 320));
+  }
+
+  $(".cell").mousedown(function (mDown) {
+    if (context != undefined)  { 
+    var arrow = document.getElementById("hintarrow");
+    context.clearRect(0, 0, arrow.width, arrow.height); 
+    $(arrow).offset({top:0, left:0});
+  }
+
+
+
+    //this.style.zIndex = -10;
+    dragging = true;
+
+     dragFromImg = $(this).children()[0];
+
+     //TODO: zindex of fromCandy on top of everything
+     // high Z index for drop candy - on top of everything
+    //$(dragFromImg).css("zIndex", 9999); // setting z-index mess up the mouse events
+
+
+     dragFromCol = Math.floor((mDown.pageX-boardLeft)/CELL_WIDTH);
+     dragFromRow = Math.floor((mDown.pageY-boardTop)/CELL_WIDTH);
+     dragFromCandy = board.getCandyAt(dragFromRow, dragFromCol);
+
+    //original positions of from image
+     dragFromLeft = $(dragFromImg).offset().left;
+     dragFromTop = $(dragFromImg).offset().top;
+
+    //moving candy
+    $(document).mousemove(function (mMove) {
+      if (dragging) { 
+        
+
+        // displacement of mousedown position and candy position
+        // to avoid abrupt jump of candy between mousedown and mousemove
+        var offLeft = mDown.pageX - dragFromLeft;
+        var offTop = mDown.pageY - dragFromTop;
+        $(dragFromImg).offset({top: mMove.pageY - offTop, left: mMove.pageX - offLeft});
+      }
+     });
+
+    //perform candy swap or put candy back in place
+    $(document).mouseup(function (mUp) {
+      dragging = false;
+      if (inBound(mUp.pageX, mUp.pageY)) {
+        // within bound, now find the toCandy
+        var dragToCol = Math.floor((mUp.pageX - boardLeft)/CELL_WIDTH);
+        var dragToRow = Math.floor((mUp.pageY - boardTop)/CELL_WIDTH);
+        // check if candy is drop onto one of its 4 neighbors
+        var isNeighborCandy = ((Math.abs(dragFromCol - dragToCol) + Math.abs(dragFromRow - dragToRow)) == 1);
+
+        var directions = ['up', 'down', 'left', 'right'];
+        var directionPair = [ "10", "-10" ,"01","0-1"];
+        var deltaLocation = (dragFromRow - dragToRow).toString()+(dragFromCol - dragToCol).toString();
+        var index = directionPair.indexOf(deltaLocation);
+        if ((index != -1) && (rules.isMoveTypeValid(dragFromCandy,directions[index] ))) { 
+          var dragToCandyImg = $("#img"+dragToRow.toString()+"-"+dragToCol.toString());
+          var dragToCandy = board.getCandyAt(dragToRow, dragToCol);
+          //original positions of to image
+          dragToLeft = $(dragToCandyImg).offset().left;
+          dragToTop = $(dragToCandyImg).offset().top;
+          // drop fromCandy to location of toCandy
+          $(dragFromImg).offset({top:dragToTop , left: dragToLeft});
+        
+
+          //IMPORTANT: ACTUALLY FLIPPING THE CANDIES
+          //this then will trigger all other events such as crushing, moving candy down, adding candies
+          board.flipCandies(dragFromCandy,dragToCandy); 
+          
+        } else { //put the dragFromCandy back in its original place
+          $(dragFromImg).offset({top: dragFromTop, left:dragFromLeft});
+        }
+
+      } else { //put candy back if it is not inbound
+        $(dragFromImg).offset({top: dragFromTop, left:dragFromLeft});
+      }
+    });
+
+  });
+
+});
+
+
+
+// Update view board base on the actual candy board
+function updateViewBoard() {
+  for (var h = 0; h < board.boardSize; h++) {
+    for (var w=0; w < board.boardSize; w++) {
+      if (board.getCandyAt(h,w) !== undefined) {
+      var color = board.getCandyAt(h,w).toString();
+      var index = ['blue','green','orange','purple','red','yellow'].indexOf(color);
+      var candyImages = ['graphics/blue-candy.png', 'graphics/green-candy.png', 'graphics/orange-candy.png', 'graphics/purple-candy.png','graphics/red-candy.png','graphics/yellow-candy.png'];     
+      var img = new Image();
+      img.src = candyImages[index];
+      img.id = "img" + h.toString() + '-' + w.toString();
+      img.className = "img";
+      $('#cell'+h.toString() + '-' + w.toString()).empty().prepend(img);
+      }
+    }   
+  }
+}
+
+
+/* Event Handlers */
+// access the candy object with info.candy
+
+// add a candy to the board
+$(board).on('add', function(e, info)
+{ 
+  if ((info.fromRow != null) && (info.fromCol != null)) {
+    // create candy images base on candies that would be added
+    var candy = info.candy;
+    var color = candy.toString();
+    var index = ['blue','green','orange','purple','red','yellow'].indexOf(color);
+    var candyImages = ['graphics/blue-candy.png', 'graphics/green-candy.png', 'graphics/orange-candy.png', 'graphics/purple-candy.png','graphics/red-candy.png','graphics/yellow-candy.png'];     
+    var img = new Image();
+    img.src = candyImages[index];
+    img.style.width = "100%";
+    img.style.height = "100%";
+    // put candy img inside a div
+    var cell = document.createElement("div");
+    $('#boardView').append(cell);
+    cell.prepend(img);
+    cell.style.width = CELL_WIDTH.toString() + "px";
+    cell.style.height = CELL_WIDTH.toString() + "px";
+    cell.className = "dropCandy";
+    cell.style.position = 'absolute';
+    cell.style.top = (CELL_WIDTH * info.fromRow).toString() + "px";
+    cell.style.left = (CELL_WIDTH * info.fromCol).toString() + "px";
+    // animate that div 
+    var d = (info.toRow)* CELL_WIDTH;
+     $(cell).animate({top: d.toString() + "px"},{duration: animation_duration, easing: "easeInOutSine", done: afterSwap});  
+  }
+});
+
+
+// move a candy on the board
+$(board).on('move', function(e, info)
+{ 
+  var from = "#img" + info.fromRow.toString() + "-" + info.fromCol.toString();
+  var d = ((info.fromCol - info.toCol) + (info.fromRow - info.toRow)) * (-1) * CELL_WIDTH;
+  if (info.fromRow == info.toRow) { // Moving horizontally
+    $(from).animate({left: d.toString() + "px"}, {duration: animation_duration, easing: "easeInOutSine", done: afterSwap});
+  }
+  if (info.fromCol == info.toCol) { // Moving vertically
+    $(from).animate({top: d.toString() + "px"}, {duration: animation_duration, easing: "easeInOutSine", done: afterSwap});
+  }
+  
+});
+
+//After moving candy, update board view, score, and remove crushes if existed
+function afterSwap() {
+  if ($(".dropCandy").length > 0) {
+    $(".dropCandy").remove();
+  }
+  updateViewBoard(); //EXTREMELY IMPORTANT
+  var crushes = rules.getCandyCrushes();
+  if (crushes.length > 0 ) {
+  lastCrushColor = crushes[0][0].toString();
+  
+  rules.removeCrushes(crushes);
+
+  if (lastCrushColor == 'yellow') {
+  document.getElementById("score").style.color = "black";
+  } else { document.getElementById("score").style.color = "white";}
+  document.getElementById("score").style.background = lastCrushColor;
+  }
+
+}
+
+// remove a candy from the board
+$(board).on('remove', function(e, info)
+{
+  var remove = "#img" + info.fromRow.toString() + "-" + info.fromCol.toString();
+  $(remove).fadeOut(animation_duration, rules.moveCandiesDown);
+});
+
+
+$(board).on('scoreUpdate', function(e, info)
+{
+  var point = info.score.toString();
+  if (point !=0 ) {
+    document.getElementById("score").innerHTML =  point + " points";
+  }
+  
+});
+
+// Button Events
+
+$(document).on('click', "#start", function(evt) // New Game button
+{ 
+  //reset score board
+  document.getElementById("score").style.background = "gray";
+  document.getElementById("score").innerHTML =  "0 point";
+  //clear context and bring it to screen corner, if it existed
+  if (context != undefined)  { 
+    var arrow = document.getElementById("hintarrow");
+    context.clearRect(0, 0, arrow.width, arrow.height); 
+    $(arrow).offset({top:0, left:0});
+  }
+
+  board.clear();
+  rules.prepareNewGame();
+  updateViewBoard();
+});
+
+//Show MOVE, draw a arrow to give hint about a valid move
+$(document).on('click', '#hint', function () {
+
+  var hint = rules.getRandomValidMove();
+  // canvas to work on
+  var hintcanvas = document.getElementById("hintarrow");
+  hintcanvas.width = CELL_WIDTH;
+  hintcanvas.height = CELL_WIDTH;
+  // appear on top of everything else but the dragging candy
+  hintcanvas.style.zIndex = 5;
+  hintcanvas.style.top = (hint.candy.row * CELL_WIDTH).toString() +"px";
+  hintcanvas.style.left = (hint.candy.col * CELL_WIDTH - 2*CELL_WIDTH/3).toString() + "px";
+  /// create context, and draw arrow
+  context = hintcanvas.getContext('2d');
+  context.fillStyle = 'black';
+  context.strokeStyle = 'black';
+  context.lineWidth =1;
+  context.beginPath();
+  context.moveTo(CELL_WIDTH,CELL_WIDTH/2);
+  context.lineTo(CELL_WIDTH/2,CELL_WIDTH/9);
+  context.lineTo(CELL_WIDTH/2, CELL_WIDTH/3);
+  context.ellipse(CELL_WIDTH/2, CELL_WIDTH/2, CELL_WIDTH/6, CELL_WIDTH/2, 90*Math.PI/180, 2*Math.PI, Math.PI);
+  context.lineTo(CELL_WIDTH/2,CELL_WIDTH*8/9);
+  context.closePath();
+  context.fill();
+  context.stroke();
+  
+});
+
+
+</script>
+</head>
+
+<body>
+
+<div class="container">
+  <div class="mainRow">
+
+    <div class="col-md-3 col-xs-4" id="firstColumn">
+      <!-- Column 1 Code Here -->
+      <div  id = "gamename"> Candy Crush </div> 
+      <div id = 'score'> </div>
+      <div id = 'startcontainer'>  <input class="btn" type="button" value="New Game" id="start"> </div>
+      <div id = 'hintcontainer'> <input class="btn" type="button" value="Show Move" id="hint"> </div>
+    </div>
+
+
+    <div class="col-md-6 col-xs-9" id="mainColumn">  <!-- 2nd column is 50% width-->
+    <!-- Column 2 Code Here -->
+      <div id="boardView">
+      <canvas id= "hintarrow" style="top:-1000px; left:-1000px"></canvas>
+      </div> 
+
+    </div>
+
+  </div> <!-- class="row" -->
+</div> <!-- class="container" -->
+
+</body>
+
+</html>
