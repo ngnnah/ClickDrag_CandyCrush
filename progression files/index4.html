@@ -24,6 +24,11 @@ I read, asked, and answered questions on Piazza.
 
 <link rel="stylesheet" href="mainLayout.css">
 
+
+<!-- FONTS -->
+<link href="https://fonts.googleapis.com/css?family=Fascinate+Inline" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css?family=Space+Mono" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css?family=Nova+Oval" rel="stylesheet">
 <!-- Use mobile-aware viewport -->
 <meta name="viewport" content=
   "width=device-width, initial-scale=1, shrink-to-fit=no"">
@@ -36,6 +41,12 @@ I read, asked, and answered questions on Piazza.
 <script src="board.js"></script>
 <script src="rules.js"></script>
 <script src='easing.js'></script>
+<script
+  src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"
+  integrity="sha256-T0Vest3yCU7pafRw9r+settMBX6JkKN06dqBnpQ8d30="
+  crossorigin="anonymous"></script>
+
+
 <script> //REAL CODE BEGIN
 // By default, the first board loaded by your page will be the same 
 // each time you load (which is accomplished by "seeding" the random
@@ -117,32 +128,33 @@ $(document).ready(function()
       (y - boardTop > 0) && (y - boardTop < 320));
   }
 
+  //the cell that is being dragged always appear on top
+  //show move arrow is also part of stack!
+  $(".cell").draggable({
+  stack: ".cell" && "#hintarrow"
+  });
+
+  //set arrow zindex to be higher than any mouse-clicked cells
+  //inorder for it to appear above candy images
+  hintZIndex = 10;
+
   $(".cell").mousedown(function (mDown) {
-    if (context != undefined)  { 
-    var arrow = document.getElementById("hintarrow");
-    context.clearRect(0, 0, arrow.width, arrow.height); 
-    $(arrow).offset({top:0, left:0});
-  }
-
-
-
-    //this.style.zIndex = -10;
+    //draggingcell = this;
     dragging = true;
+    dragFromCell = this;
+    
+    //make sure hint arrow would stay on top
+    hintZIndex = Math.max(hintZIndex,dragFromCell.style.zIndex) + 2;
 
-     dragFromImg = $(this).children()[0];
-
-     //TODO: zindex of fromCandy on top of everything
-     // high Z index for drop candy - on top of everything
-    //$(dragFromImg).css("zIndex", 9999); // setting z-index mess up the mouse events
-
+    dragFromImg = $(this).children()[0];
 
      dragFromCol = Math.floor((mDown.pageX-boardLeft)/CELL_WIDTH);
      dragFromRow = Math.floor((mDown.pageY-boardTop)/CELL_WIDTH);
      dragFromCandy = board.getCandyAt(dragFromRow, dragFromCol);
 
     //original positions of from image
-     dragFromLeft = $(dragFromImg).offset().left;
-     dragFromTop = $(dragFromImg).offset().top;
+     dragFromLeft = $(dragFromCell).offset().left;
+     dragFromTop = $(dragFromCell).offset().top;
 
     //moving candy
     $(document).mousemove(function (mMove) {
@@ -153,13 +165,14 @@ $(document).ready(function()
         // to avoid abrupt jump of candy between mousedown and mousemove
         var offLeft = mDown.pageX - dragFromLeft;
         var offTop = mDown.pageY - dragFromTop;
-        $(dragFromImg).offset({top: mMove.pageY - offTop, left: mMove.pageX - offLeft});
+        $(dragFromCell).offset({top: mMove.pageY - offTop, left: mMove.pageX - offLeft});
       }
      });
 
     //perform candy swap or put candy back in place
     $(document).mouseup(function (mUp) {
       dragging = false;
+      $(dragFromCell).offset({top: dragFromTop, left:dragFromLeft});
       if (inBound(mUp.pageX, mUp.pageY)) {
         // within bound, now find the toCandy
         var dragToCol = Math.floor((mUp.pageX - boardLeft)/CELL_WIDTH);
@@ -179,18 +192,26 @@ $(document).ready(function()
           dragToTop = $(dragToCandyImg).offset().top;
           // drop fromCandy to location of toCandy
           $(dragFromImg).offset({top:dragToTop , left: dragToLeft});
-        
+          //$(dragFromImg).css('zIndex',-1);
+        if (context != undefined)  { 
+          var arrow = document.getElementById("hintarrow");
+          context.clearRect(0, 0, arrow.width, arrow.height); 
+          $(arrow).offset({top:0, left:0});
+        }
+
+
+
 
           //IMPORTANT: ACTUALLY FLIPPING THE CANDIES
           //this then will trigger all other events such as crushing, moving candy down, adding candies
           board.flipCandies(dragFromCandy,dragToCandy); 
           
         } else { //put the dragFromCandy back in its original place
-          $(dragFromImg).offset({top: dragFromTop, left:dragFromLeft});
+          $(dragFromCell).offset({top: dragFromTop, left:dragFromLeft});
         }
 
       } else { //put candy back if it is not inbound
-        $(dragFromImg).offset({top: dragFromTop, left:dragFromLeft});
+        $(dragFromCell).offset({top: dragFromTop, left:dragFromLeft});
       }
     });
 
@@ -201,6 +222,7 @@ $(document).ready(function()
 
 
 // Update view board base on the actual candy board
+// by changing img of div cells
 function updateViewBoard() {
   for (var h = 0; h < board.boardSize; h++) {
     for (var w=0; w < board.boardSize; w++) {
@@ -305,11 +327,16 @@ $(board).on('scoreUpdate', function(e, info)
 
 // Button Events
 
-$(document).on('click', "#start", function(evt) // New Game button
+$(document).on('click', "#newgame", function(evt) // New Game button
 { 
   //reset score board
   document.getElementById("score").style.background = "gray";
   document.getElementById("score").innerHTML =  "0 point";
+
+  //reset showmove button
+  var showmoveButton = document.getElementById("hint")
+  showmoveButton.style.background = "yellow";
+  showmoveButton.value = "Show Move";
   //clear context and bring it to screen corner, if it existed
   if (context != undefined)  { 
     var arrow = document.getElementById("hintarrow");
@@ -326,28 +353,37 @@ $(document).on('click', "#start", function(evt) // New Game button
 $(document).on('click', '#hint', function () {
 
   var hint = rules.getRandomValidMove();
-  // canvas to work on
-  var hintcanvas = document.getElementById("hintarrow");
-  hintcanvas.width = CELL_WIDTH;
-  hintcanvas.height = CELL_WIDTH;
-  // appear on top of everything else but the dragging candy
-  hintcanvas.style.zIndex = 5;
-  hintcanvas.style.top = (hint.candy.row * CELL_WIDTH).toString() +"px";
-  hintcanvas.style.left = (hint.candy.col * CELL_WIDTH - 2*CELL_WIDTH/3).toString() + "px";
-  /// create context, and draw arrow
-  context = hintcanvas.getContext('2d');
-  context.fillStyle = 'black';
-  context.strokeStyle = 'black';
-  context.lineWidth =1;
-  context.beginPath();
-  context.moveTo(CELL_WIDTH,CELL_WIDTH/2);
-  context.lineTo(CELL_WIDTH/2,CELL_WIDTH/9);
-  context.lineTo(CELL_WIDTH/2, CELL_WIDTH/3);
-  context.ellipse(CELL_WIDTH/2, CELL_WIDTH/2, CELL_WIDTH/6, CELL_WIDTH/2, 90*Math.PI/180, 2*Math.PI, Math.PI);
-  context.lineTo(CELL_WIDTH/2,CELL_WIDTH*8/9);
-  context.closePath();
-  context.fill();
-  context.stroke();
+  if (hint) {
+      // canvas to work on
+      var hintcanvas = document.getElementById("hintarrow");
+      hintcanvas.width = CELL_WIDTH;
+      hintcanvas.height = CELL_WIDTH;
+      // appear on top of everything else but the dragging candy
+      hintcanvas.style.zIndex = hintZIndex;
+
+
+      hintcanvas.style.top = (hint.candy.row * CELL_WIDTH).toString() +"px";
+      hintcanvas.style.left = (hint.candy.col * CELL_WIDTH - 2*CELL_WIDTH/3).toString() + "px";
+      /// create context, and draw arrow
+      context = hintcanvas.getContext('2d');
+      context.fillStyle = 'black';
+      context.strokeStyle = 'black';
+      context.lineWidth =1;
+      context.beginPath();
+      context.moveTo(CELL_WIDTH,CELL_WIDTH/2);
+      context.lineTo(CELL_WIDTH/2,CELL_WIDTH/9);
+      context.lineTo(CELL_WIDTH/2, CELL_WIDTH/3);
+      context.ellipse(CELL_WIDTH/2, CELL_WIDTH/2, CELL_WIDTH/6, CELL_WIDTH/2, 90*Math.PI/180, 2*Math.PI, Math.PI);
+      context.lineTo(CELL_WIDTH/2,CELL_WIDTH*8/9);
+      context.closePath();
+      context.fill();
+      context.stroke();
+  } else { // no more valid move
+    var showmoveButton = document.getElementById("hint");
+    showmoveButton.value = "No valid move!";
+    showmoveButton.style.background = "red";
+  }
+
   
 });
 
@@ -360,16 +396,16 @@ $(document).on('click', '#hint', function () {
 <div class="container">
   <div class="mainRow">
 
-    <div class="col-md-3 col-xs-4" id="firstColumn">
+    <div class="col-md-4 col-xs-6" id="firstColumn">
       <!-- Column 1 Code Here -->
       <div  id = "gamename"> Candy Crush </div> 
       <div id = 'score'> </div>
-      <div id = 'startcontainer'>  <input class="btn" type="button" value="New Game" id="start"> </div>
+      <div id = 'newgamecontainer'>  <input class="btn" type="button" value="New Game" id="newgame"> </div>
       <div id = 'hintcontainer'> <input class="btn" type="button" value="Show Move" id="hint"> </div>
     </div>
 
 
-    <div class="col-md-6 col-xs-9" id="mainColumn">  <!-- 2nd column is 50% width-->
+    <div class="col-md-8 col-xs-12" id="mainColumn">  <!-- 2nd column is 50% width-->
     <!-- Column 2 Code Here -->
       <div id="boardView">
       <canvas id= "hintarrow" style="top:-1000px; left:-1000px"></canvas>
